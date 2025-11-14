@@ -11,6 +11,20 @@ from .workflow import ApprovalRoute, WorkflowState
 class DocumentMetadata:
     tags: List[str] = field(default_factory=list)
     attributes: Dict[str, str] = field(default_factory=dict)
+    
+    def add_tag(self, tag: str) -> None:
+        """Add a tag to metadata"""
+        if tag not in self.tags:
+            self.tags.append(tag)
+    
+    def remove_tag(self, tag: str) -> None:
+        """Remove a tag from metadata"""
+        if tag in self.tags:
+            self.tags.remove(tag)
+    
+    def has_tag(self, tag: str) -> bool:
+        """Check if metadata has a specific tag"""
+        return tag in self.tags
 
 @dataclass
 class DocumentAttachment:
@@ -18,6 +32,18 @@ class DocumentAttachment:
     content_type: str
     size: int
     checksum: str
+    
+    def is_image(self) -> bool:
+        """Check if attachment is an image"""
+        return self.content_type.startswith('image/')
+    
+    def is_pdf(self) -> bool:
+        """Check if attachment is a PDF"""
+        return self.content_type == 'application/pdf'
+    
+    def get_extension(self) -> str:
+        """Get file extension"""
+        return self.filename.split('.')[-1] if '.' in self.filename else ''
 
 @dataclass
 class DocumentVersion:
@@ -25,12 +51,25 @@ class DocumentVersion:
     content: str
     created_at: datetime
     author_id: str
+    comment: str = ""
+    
+    def get_content_length(self) -> int:
+        """Get content length"""
+        return len(self.content)
+    
+    def is_latest(self, total_versions: int) -> bool:
+        """Check if this is the latest version"""
+        return self.number == total_versions
 
 @dataclass
 class Signature:
     user_id: str
     certificate_id: str
     signed_at: datetime
+    
+    def is_valid_for(self, user_id: str) -> bool:
+        """Check if signature belongs to user"""
+        return self.user_id == user_id
 
 @dataclass
 class DigitalCertificate:
@@ -38,8 +77,18 @@ class DigitalCertificate:
     subject: str
     valid_from: datetime
     valid_to: datetime
+    issuer: str = ""
+    
     def is_valid(self, moment: datetime) -> bool:
         return self.valid_from <= moment <= self.valid_to
+    
+    def days_until_expiry(self) -> int:
+        """Get days until certificate expires"""
+        return (self.valid_to - datetime.utcnow()).days
+    
+    def is_expiring_soon(self, days: int = 30) -> bool:
+        """Check if certificate is expiring within specified days"""
+        return 0 < self.days_until_expiry() <= days
 
 @dataclass
 class DocumentHistoryRecord:
@@ -47,11 +96,19 @@ class DocumentHistoryRecord:
     actor_id: str
     occurred_at: datetime
     details: str = ""
+    
+    def get_event_type(self) -> str:
+        """Get event type"""
+        return self.event.split(':')[0] if ':' in self.event else self.event
 
 @dataclass
 class DocumentLock:
     owner_id: str
     acquired_at: datetime
+    
+    def get_lock_duration(self) -> int:
+        """Get lock duration in seconds"""
+        return int((datetime.utcnow() - self.acquired_at).total_seconds())
 
 @dataclass(kw_only=True)
 class Document(IdentifiableMixin, Validatable, Approvable, Signable, BaseEntity):
@@ -160,10 +217,20 @@ class OrderDocument(Document):
 @dataclass
 class DocumentRegistry:
     numbers: set[str] = field(default_factory=set)
+    
     def register(self, number: str) -> None:
         from .exceptions import DuplicateDocumentError
         if number in self.numbers:
             raise DuplicateDocumentError(f"Номер {number} уже существует")
         self.numbers.add(number)
+    
     def contains(self, number: str) -> bool:
         return number in self.numbers
+    
+    def unregister(self, number: str) -> None:
+        """Unregister a document number"""
+        self.numbers.discard(number)
+    
+    def count(self) -> int:
+        """Count registered numbers"""
+        return len(self.numbers)
