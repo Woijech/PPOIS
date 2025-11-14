@@ -294,6 +294,35 @@ class TestStorage(unittest.TestCase):
         # Simulate old document by setting created_at to past
         doc3.created_at = datetime.utcnow() - timedelta(days=40)
         self.assertTrue(archive_service.can_delete_archived(doc3))
+    
+    def test_storage_attachment_quota_exceeded(self):
+        """Test storing attachment when quota is exceeded"""
+        from documentflow.exceptions import StorageLimitExceededError
+        
+        loc = StorageLocation(name="test", base_path="/tmp")
+        quota = QuotaManager(max_bytes=100)
+        storage = DocumentStorage(location=loc, quota=quota)
+        
+        doc = Document(
+            id="d1",
+            number="DOC-001",
+            title="Test",
+            author=self.user,
+            status=WorkflowState.NEW,
+            metadata=DocumentMetadata()
+        )
+        storage.save(doc)
+        
+        # Try to store attachment that exceeds quota
+        large_att = DocumentAttachment(
+            filename="large.pdf",
+            content_type="application/pdf",
+            size=200,
+            checksum="abc"
+        )
+        
+        with self.assertRaises(StorageLimitExceededError):
+            storage.store_attachment(doc, large_att)
 
 
 if __name__ == "__main__":
